@@ -87,7 +87,7 @@ def get_params(params):
     parser.add_argument(
         "--early_stopping_thr",
         type=float,
-        default=0.99999,
+        default=0.999,
         help="Early stopping threshold on accuracy (defautl: 0.99999)",
     )
 
@@ -324,8 +324,8 @@ def main(params):
                                    message_distance_fn='edit',
                                    compute_topsim_train_set=False,
                                    compute_topsim_test_set=False,
-                                   save_path=save_path,
-                                   step=2)
+                                   save_path=save_path
+                                   )
     console_logger_save = ConsoleLoggerSave(save_path=save_path)
 
     trainer = core.Trainer(
