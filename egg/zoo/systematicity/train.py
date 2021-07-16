@@ -469,14 +469,16 @@ if __name__ == "__main__":
 
     import sys
 
-    sys_argv_orig = sys.argv
+    main(sys.argv[1:])
 
-    for vs in [50, 100]:
-        for maxlen in [2, 6, 8]:
-            for rs in range(5):
-                for i, arg in enumerate(sys.argv):
-
-                    main(sys.argv[1:] + ['--random_seed='+str(rs), '--vocab_size='+str(vs), '--max_len='+str(maxlen)])
+    # sys_argv_orig = sys.argv
+    #
+    # for vs in [50, 100]:
+    #     for maxlen in [2, 6, 8]:
+    #         for rs in range(5):
+    #             for i, arg in enumerate(sys.argv):
+    #
+    #                 main(sys.argv[1:] + ['--random_seed='+str(rs), '--vocab_size='+str(vs), '--max_len='+str(maxlen)])
 
     # arguments = ['--n_attributes=4', '--n_values=5', '--vocab_size='+str(vs), '--max_len='+str(maxlen),
     #              '--batch_size=5120', '--data_scaler='+str(60), '--random_seed='+str(rs),
