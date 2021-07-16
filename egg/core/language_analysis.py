@@ -6,6 +6,7 @@
 import json
 from collections import defaultdict
 from typing import Callable, Union
+import pickle
 
 import editdistance
 import numpy as np
@@ -144,6 +145,8 @@ class TopographicSimilarity(Callback):
         compute_topsim_train_set: bool = False,
         compute_topsim_test_set: bool = True,
         is_gumbel: bool = False,
+        save_path: str = './',
+        step=2
     ):
 
         self.sender_input_distance_fn = sender_input_distance_fn
@@ -151,9 +154,13 @@ class TopographicSimilarity(Callback):
 
         self.compute_topsim_train_set = compute_topsim_train_set
         self.compute_topsim_test_set = compute_topsim_test_set
-        assert compute_topsim_train_set or compute_topsim_test_set
+        # assert compute_topsim_train_set or compute_topsim_test_set
 
         self.is_gumbel = is_gumbel
+
+        self.step = step
+
+        self.save_path = save_path
 
     def on_epoch_end(self, loss: float, logs: Interaction, epoch: int):
         if self.compute_topsim_train_set:
@@ -195,8 +202,8 @@ class TopographicSimilarity(Callback):
         ), f"Cannot recognize {meaning_distance_fn} \
             or {message_distance_fn} distances"
 
-        meaning_dist = distance.pdist(meanings, meaning_distance_fn)
-        message_dist = distance.pdist(messages, message_distance_fn)
+        meaning_dist = distance.pdist(meanings.numpy(), meaning_distance_fn)
+        message_dist = distance.pdist(messages.numpy(), message_distance_fn)
 
         topsim = spearmanr(meaning_dist, message_dist, nan_policy="raise").correlation
 
@@ -210,6 +217,18 @@ class TopographicSimilarity(Callback):
 
         output = json.dumps(dict(topsim=topsim, mode=mode, epoch=epoch))
         print(output, flush=True)
+
+    def on_early_stopping(
+        self,
+        train_loss: float,
+        train_logs: Interaction,
+        epoch: int,
+        test_loss: float = None,
+        test_logs: Interaction = None,
+    ):
+        messages = train_logs.message.argmax(dim=-1) if self.is_gumbel else train_logs.message
+        topsim = self.compute_topsim(train_logs.sender_input, messages)
+        pickle.dump(topsim, open(self.save_path + 'topsim.pkl', 'wb'))
 
 
 class Disent(Callback):
@@ -258,14 +277,15 @@ class Disent(Callback):
         vocab_size: int = 0,
         print_train: bool = False,
         print_test: bool = True,
+        save_path: str = './'
     ):
         super().__init__()
-        assert (
-            print_train or print_test
-        ), "At least one of `print_train` and `print_train` must be set"
-        assert (
-            compute_posdis or compute_bosdis
-        ), "At least one of `compute_posdis` and `compute_bosdis` must be set"
+        # assert (
+        #     print_train or print_test
+        # ), "At least one of `print_train` and `print_train` must be set"
+        # assert (
+        #     compute_posdis or compute_bosdis
+        # ), "At least one of `compute_posdis` and `compute_bosdis` must be set"
         assert (
             not compute_bosdis or vocab_size > 0
         ), "To compute a positive vocab_size must be specifed"
@@ -278,6 +298,8 @@ class Disent(Callback):
 
         self.print_train = print_train
         self.print_test = print_test
+
+        self.save_path = save_path
 
     @staticmethod
     def bosdis(
@@ -298,10 +320,10 @@ class Disent(Callback):
         message = logs.message.argmax(dim=-1) if self.is_gumbel else logs.message
 
         posdis = (
-            self.disent(logs.sender_input, message) if self.compute_posdis else None
+            self.posdis(logs.sender_input, message) if self.compute_posdis else None
         )
         bosdis = (
-            self.disent(logs.sender_input, message, self.vocab_size)
+            self.bosdis(logs.sender_input, message, self.vocab_size)
             if self.compute_bosdis
             else None
         )
@@ -316,6 +338,20 @@ class Disent(Callback):
     def on_validation_end(self, loss, logs, epoch):
         if self.print_test:
             self.print_message(logs, "test", epoch)
+
+    def on_early_stopping(
+        self,
+        train_loss: float,
+        train_logs: Interaction,
+        epoch: int,
+        test_loss: float = None,
+        test_logs: Interaction = None,
+    ):
+        message = train_logs.message.argmax(dim=-1) if self.is_gumbel else train_logs.message
+
+        posdis = self.posdis(train_logs.sender_input, message)
+        bosdis = self.bosdis(train_logs.sender_input, message, self.vocab_size)
+        pickle.dump({'posdis': posdis, 'bosdis': bosdis}, open(self.save_path + 'disent.pkl', 'wb'))
 
 
 # The PrintValidationEvent callback function checks that we are at the

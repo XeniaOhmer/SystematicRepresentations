@@ -4,14 +4,17 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
-import copy
 import json
+import pickle
+import os
+import copy
 
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 import egg.core as core
+import egg.core.baselines as baselines
 from egg.core import EarlyStopperAccuracy
 from egg.zoo.compo_vs_generalization.archs import (
     Freezer,
@@ -30,6 +33,8 @@ from egg.zoo.compo_vs_generalization.data import (
     split_train_test,
 )
 from egg.zoo.compo_vs_generalization.intervention import Evaluator, Metrics
+from egg.core.callbacks import CheckpointSaver, InteractionSaver, ConsoleLoggerSave, ConsoleLogger
+from egg.core.language_analysis import Disent, TopographicSimilarity
 
 
 def get_params(params):
@@ -190,10 +195,16 @@ class DiffLoss(torch.nn.Module):
 
 
 def main(params):
-    import copy
 
     opts = get_params(params)
-    device = opts.device
+    _ = opts.device
+
+    save_path = 'results/' + 'atts' + str(opts.n_attributes) + '_vals' + str(opts.n_values) + '_vs' + \
+                str(opts.vocab_size) + '_len' + str(opts.max_len) + '/seed' + str(opts.random_seed) + '/'
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+
+    pickle.dump(opts, open(save_path + 'params.pkl', 'wb'))
 
     full_data = enumerate_attribute_value(opts.n_attributes, opts.n_values)
     if opts.density_data > 0:
@@ -256,9 +267,9 @@ def main(params):
     loss = DiffLoss(opts.n_attributes, opts.n_values)
 
     baseline = {
-        "no": core.baselines.NoBaseline,
-        "mean": core.baselines.MeanBaseline,
-        "builtin": core.baselines.BuiltInBaseline,
+        "no": baselines.NoBaseline,
+        "mean": baselines.MeanBaseline,
+        "builtin": baselines.BuiltInBaseline,
     }[opts.baseline]
 
     game = core.SenderReceiverRnnReinforce(
@@ -271,17 +282,16 @@ def main(params):
         baseline_type=baseline,
     )
     optimizer = torch.optim.Adam(game.parameters(), lr=opts.lr)
+    # metrics_evaluator = Metrics(
+    #     validation.examples,
+    #     opts.device,
+    #     opts.n_attributes,
+    #     opts.n_values,
+    #     opts.vocab_size + 1,
+    #     freq=opts.stats_freq,
+    # )
 
-    metrics_evaluator = Metrics(
-        validation.examples,
-        opts.device,
-        opts.n_attributes,
-        opts.n_values,
-        opts.vocab_size + 1,
-        freq=opts.stats_freq,
-    )
-
-    loaders = []
+    loaders = list()
     loaders.append(
         (
             "generalization hold out",
@@ -293,12 +303,28 @@ def main(params):
         (
             "uniform holdout",
             uniform_holdout_loader,
-            DiffLoss(opts.n_attributes, opts.n_values),
+            DiffLoss(opts.n_attributes, opts.n_values, generalization=False),
         )
     )
 
     holdout_evaluator = Evaluator(loaders, opts.device, freq=0)
     early_stopper = EarlyStopperAccuracy(opts.early_stopping_thr, validation=True)
+    checkpoint_saver = CheckpointSaver(save_path, checkpoint_freq=0, prefix='checkpoint')
+    interaction_saver = InteractionSaver(checkpoint_dir=save_path)
+    disent = Disent(is_gumbel=False,
+                    compute_bosdis=False,
+                    compute_posdis=False,
+                    vocab_size=opts.vocab_size+1,
+                    print_train=False,
+                    print_test=False,
+                    save_path=save_path)
+    topsim = TopographicSimilarity(is_gumbel=False,
+                                   sender_input_distance_fn='cosine',
+                                   message_distance_fn='edit',
+                                   compute_topsim_train_set=False,
+                                   compute_topsim_test_set=False,
+                                   save_path=save_path)
+    console_logger_save = ConsoleLoggerSave(save_path=save_path)
 
     trainer = core.Trainer(
         game=game,
@@ -306,21 +332,29 @@ def main(params):
         train_data=train_loader,
         validation_data=validation_loader,
         callbacks=[
-            core.ConsoleLogger(as_json=True, print_train_loss=False),
+            ConsoleLogger(as_json=True, print_train_loss=False),
             early_stopper,
-            metrics_evaluator,
+            # metrics_evaluator,
+            interaction_saver,
+            disent,
+            topsim,
+            checkpoint_saver,
             holdout_evaluator,
+            console_logger_save
         ],
     )
     trainer.train(n_epochs=opts.n_epochs)
 
-    last_epoch_interaction = early_stopper.validation_stats[-1][1]
-    validation_acc = last_epoch_interaction.aux["acc"].mean()
+    logs_val = early_stopper.validation_stats[-1][1]
 
-    uniformtest_acc = holdout_evaluator.results["uniform holdout"]["acc"]
+    validation_acc = logs_val.aux["acc"].mean()
+    _ = holdout_evaluator.results["uniform holdout"]["acc"]
+    print("holdout results", holdout_evaluator.results)
+    pickle.dump(holdout_evaluator.results, open(save_path + 'holdout.pkl', 'wb'))
 
     # Train new agents
     if validation_acc > 0.99:
+        print('RETRAINING RECEIVER')
 
         def _set_seed(seed):
             import random
@@ -360,7 +394,8 @@ def main(params):
             )
             trainer.train(n_epochs=opts.n_epochs // 2)
 
-            accs = [x[1]["acc"] for x in early_stopper.validation_stats]
+            accs = [x[1].aux["acc"].numpy().mean() for x in early_stopper.validation_stats]
+            # accs = [x[1]["acc"] for x in early_stopper.validation_stats]
             return accs
 
         frozen_sender = Freezer(copy.deepcopy(sender))
@@ -402,9 +437,9 @@ def main(params):
 
         for name, receiver_generator in [
             ("gru", gru_receiver_generator),
-            ("nonlinear", nonlinear_receiver_generator),
-            ("tiny_gru", tiny_gru_receiver_generator),
-            ("small_gru", small_gru_receiver_generator),
+            # ("nonlinear", nonlinear_receiver_generator),
+            # ("tiny_gru", tiny_gru_receiver_generator),
+            # ("small_gru", small_gru_receiver_generator),
         ]:
 
             for seed in range(17, 17 + 3):
@@ -412,16 +447,18 @@ def main(params):
                 accs = retrain_receiver(receiver_generator, frozen_sender)
                 accs += [1.0] * (opts.n_epochs // 2 - len(accs))
                 auc = sum(accs)
+                results_dict = {
+                                    "mode": "reset",
+                                    "seed": seed,
+                                    "receiver_name": name,
+                                    "auc": auc,
+                                }
                 print(
                     json.dumps(
-                        {
-                            "mode": "reset",
-                            "seed": seed,
-                            "receiver_name": name,
-                            "auc": auc,
-                        }
+                        results_dict
                     )
                 )
+                pickle.dump(results_dict, open(save_path + 'retrain_receiver_' + str(seed) + '.pkl', 'wb'))
 
     print("---End--")
 
@@ -429,6 +466,20 @@ def main(params):
 
 
 if __name__ == "__main__":
+
     import sys
 
-    main(sys.argv[1:])
+    sys_argv_orig = sys.argv
+
+    for vs in [50, 100]:
+        for maxlen in [2, 6, 8]:
+            for rs in range(5):
+                for i, arg in enumerate(sys.argv):
+
+                    main(sys.argv[1:] + ['--random_seed='+str(rs), '--vocab_size='+str(vs), '--max_len='+str(maxlen)])
+
+    # arguments = ['--n_attributes=4', '--n_values=5', '--vocab_size='+str(vs), '--max_len='+str(maxlen),
+    #              '--batch_size=5120', '--data_scaler='+str(60), '--random_seed='+str(rs),
+    #              '--sender_hidden=500', '--receiver_hidden=500', '--sender_entropy_coeff=0.5',
+    #              '--sender_cell=gru', '--receiver_cell=gru', '--lr=0.001', '--receiver_emb=30',
+    #              '--sender_emb=5', '--n_epochs='+str(3000)]
