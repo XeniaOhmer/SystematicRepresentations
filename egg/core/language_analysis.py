@@ -146,7 +146,7 @@ class TopographicSimilarity(Callback):
         compute_topsim_test_set: bool = True,
         is_gumbel: bool = False,
         save_path: str = './',
-        step=2
+        step=1
     ):
 
         self.sender_input_distance_fn = sender_input_distance_fn
@@ -157,9 +157,7 @@ class TopographicSimilarity(Callback):
         # assert compute_topsim_train_set or compute_topsim_test_set
 
         self.is_gumbel = is_gumbel
-
         self.step = step
-
         self.save_path = save_path
 
     def on_epoch_end(self, loss: float, logs: Interaction, epoch: int):
@@ -176,6 +174,7 @@ class TopographicSimilarity(Callback):
         messages: torch.Tensor,
         meaning_distance_fn: Union[str, Callable] = "hamming",
         message_distance_fn: Union[str, Callable] = "edit",
+        step=1
     ) -> float:
 
         distances = {
@@ -202,8 +201,11 @@ class TopographicSimilarity(Callback):
         ), f"Cannot recognize {meaning_distance_fn} \
             or {message_distance_fn} distances"
 
-        meaning_dist = distance.pdist(meanings.numpy(), meaning_distance_fn)
-        message_dist = distance.pdist(messages.numpy(), message_distance_fn)
+        print("shape orig", meanings.numpy().shape)
+        print("shape part", meanings.numpy()[0::step].shape)
+
+        meaning_dist = distance.pdist(meanings.numpy()[0::step], meaning_distance_fn)
+        message_dist = distance.pdist(messages.numpy()[0::step], message_distance_fn)
 
         topsim = spearmanr(meaning_dist, message_dist, nan_policy="raise").correlation
 
@@ -213,7 +215,7 @@ class TopographicSimilarity(Callback):
         messages = logs.message.argmax(dim=-1) if self.is_gumbel else logs.message
         messages = [msg.tolist() for msg in messages]
 
-        topsim = self.compute_topsim(logs.sender_input, messages)
+        topsim = self.compute_topsim(logs.sender_input, messages, step=self.step)
 
         output = json.dumps(dict(topsim=topsim, mode=mode, epoch=epoch))
         print(output, flush=True)
@@ -227,7 +229,7 @@ class TopographicSimilarity(Callback):
         test_logs: Interaction = None,
     ):
         messages = train_logs.message.argmax(dim=-1) if self.is_gumbel else train_logs.message
-        topsim = self.compute_topsim(train_logs.sender_input, messages)
+        topsim = self.compute_topsim(train_logs.sender_input, messages, step=self.step)
         pickle.dump(topsim, open(self.save_path + 'topsim.pkl', 'wb'))
 
 
