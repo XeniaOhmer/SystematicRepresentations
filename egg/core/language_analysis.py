@@ -162,8 +162,7 @@ class TopographicSimilarity(Callback):
         compute_topsim_train_set: bool = False,
         compute_topsim_test_set: bool = True,
         is_gumbel: bool = False,
-        save_path: str = './',
-        step=1
+        save_path: str = './'
     ):
 
         self.sender_input_distance_fn = sender_input_distance_fn
@@ -174,7 +173,6 @@ class TopographicSimilarity(Callback):
         # assert compute_topsim_train_set or compute_topsim_test_set
 
         self.is_gumbel = is_gumbel
-        self.step = step
         self.save_path = save_path
 
     def on_epoch_end(self, loss: float, logs: Interaction, epoch: int):
