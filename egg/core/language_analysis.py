@@ -19,7 +19,6 @@ from .interaction import Interaction
 
 
 def gap_mi_first_second(attributes, representations):
-    print(attributes.shape, representations.shape)
     gaps = torch.zeros(representations.size(1))
     non_constant_positions = 0.0
 
@@ -368,7 +367,6 @@ class Disent(Callback):
         messages = train_logs.message.argmax(dim=-1) if self.is_gumbel else train_logs.message
         attributes = get_attributes(train_logs.sender_input)
         unique_attributes, unique_messages = get_unique_attributes_and_messages(attributes, messages)
-        print(len(messages), len(unique_messages))
 
         posdis = self.posdis(unique_attributes, unique_messages)
         bosdis = self.bosdis(unique_attributes, unique_messages, self.vocab_size)

@@ -87,7 +87,7 @@ def get_params(params):
     parser.add_argument(
         "--early_stopping_thr",
         type=float,
-        default=0.01, # 0.99999,
+        default=0.99999,
         help="Early stopping threshold on accuracy (defautl: 0.99999)",
     )
 
