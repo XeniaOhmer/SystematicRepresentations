@@ -19,6 +19,7 @@ from .interaction import Interaction
 
 
 def gap_mi_first_second(attributes, representations):
+    print(attributes.shape, representations.shape)
     gaps = torch.zeros(representations.size(1))
     non_constant_positions = 0.0
 
@@ -99,6 +100,23 @@ def mutual_info(xs, ys):
     e_xy = calc_entropy(xys)
 
     return e_x + e_y - e_xy
+
+
+def get_attributes(sender_inputs):
+    n_attributes = int(torch.sum(sender_inputs[0, :]))
+    n_values = int(len(sender_inputs[0, :]) / n_attributes)
+    attribute_parts = []
+    for i in range(n_attributes):
+        attribute_parts.append(torch.argmax(sender_inputs[:, i*n_values:(i+1)*n_values], dim=1) + 1)
+    attributes = torch.stack(attribute_parts, dim=1)
+    return attributes
+
+
+def get_unique_attributes_and_messages(attributes, messages):
+    _, indices = np.unique(attributes, return_index=True, axis=0)
+    unique_attributes = attributes[indices]
+    unique_messages = messages[indices]
+    return unique_attributes, unique_messages
 
 
 class MessageEntropy(Callback):
@@ -201,9 +219,6 @@ class TopographicSimilarity(Callback):
         ), f"Cannot recognize {meaning_distance_fn} \
             or {message_distance_fn} distances"
 
-        print("shape orig", meanings.numpy().shape)
-        print("shape part", meanings.numpy()[0::step].shape)
-
         meaning_dist = distance.pdist(meanings.numpy()[0::step], meaning_distance_fn)
         message_dist = distance.pdist(messages.numpy()[0::step], message_distance_fn)
 
@@ -229,7 +244,8 @@ class TopographicSimilarity(Callback):
         test_logs: Interaction = None,
     ):
         messages = train_logs.message.argmax(dim=-1) if self.is_gumbel else train_logs.message
-        topsim = self.compute_topsim(train_logs.sender_input, messages, step=self.step)
+        unique_inputs, unique_messages = get_unique_attributes_and_messages(train_logs.sender_input, messages)
+        topsim = self.compute_topsim(unique_inputs, unique_messages, step=self.step)
         pickle.dump(topsim, open(self.save_path + 'topsim.pkl', 'wb'))
 
 
@@ -349,10 +365,13 @@ class Disent(Callback):
         test_loss: float = None,
         test_logs: Interaction = None,
     ):
-        message = train_logs.message.argmax(dim=-1) if self.is_gumbel else train_logs.message
+        messages = train_logs.message.argmax(dim=-1) if self.is_gumbel else train_logs.message
+        attributes = get_attributes(train_logs.sender_input)
+        unique_attributes, unique_messages = get_unique_attributes_and_messages(attributes, messages)
+        print(len(messages), len(unique_messages))
 
-        posdis = self.posdis(train_logs.sender_input, message)
-        bosdis = self.bosdis(train_logs.sender_input, message, self.vocab_size)
+        posdis = self.posdis(unique_attributes, unique_messages)
+        bosdis = self.bosdis(unique_attributes, unique_messages, self.vocab_size)
         pickle.dump({'posdis': posdis, 'bosdis': bosdis}, open(self.save_path + 'disent.pkl', 'wb'))
 
 

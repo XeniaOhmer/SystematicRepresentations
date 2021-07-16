@@ -87,7 +87,7 @@ def get_params(params):
     parser.add_argument(
         "--early_stopping_thr",
         type=float,
-        default=0.99999,
+        default=0.01, # 0.99999,
         help="Early stopping threshold on accuracy (defautl: 0.99999)",
     )
 
@@ -317,7 +317,8 @@ def main(params):
                     vocab_size=opts.vocab_size+1,
                     print_train=False,
                     print_test=False,
-                    save_path=save_path)
+                    save_path=save_path
+                    )
     topsim = TopographicSimilarity(is_gumbel=False,
                                    sender_input_distance_fn='cosine',
                                    message_distance_fn='edit',
@@ -410,31 +411,31 @@ def main(params):
                 cell="gru",
             )
 
-        def small_gru_receiver_generator():
-            return core.RnnReceiverDeterministic(
-                Receiver(n_hidden=100, n_outputs=n_dim),
-                opts.vocab_size + 1,
-                opts.receiver_emb,
-                hidden_size=100,
-                cell="gru",
-            )
-
-        def tiny_gru_receiver_generator():
-            return core.RnnReceiverDeterministic(
-                Receiver(n_hidden=50, n_outputs=n_dim),
-                opts.vocab_size + 1,
-                opts.receiver_emb,
-                hidden_size=50,
-                cell="gru",
-            )
-
-        def nonlinear_receiver_generator():
-            return NonLinearReceiver(
-                n_outputs=n_dim,
-                vocab_size=opts.vocab_size + 1,
-                max_length=opts.max_len,
-                n_hidden=opts.receiver_hidden,
-            )
+        # def small_gru_receiver_generator():
+        #     return core.RnnReceiverDeterministic(
+        #         Receiver(n_hidden=100, n_outputs=n_dim),
+        #         opts.vocab_size + 1,
+        #         opts.receiver_emb,
+        #         hidden_size=100,
+        #         cell="gru",
+        #     )
+        #
+        # def tiny_gru_receiver_generator():
+        #     return core.RnnReceiverDeterministic(
+        #         Receiver(n_hidden=50, n_outputs=n_dim),
+        #         opts.vocab_size + 1,
+        #         opts.receiver_emb,
+        #         hidden_size=50,
+        #         cell="gru",
+        #     )
+        #
+        # def nonlinear_receiver_generator():
+        #     return NonLinearReceiver(
+        #         n_outputs=n_dim,
+        #         vocab_size=opts.vocab_size + 1,
+        #         max_length=opts.max_len,
+        #         n_hidden=opts.receiver_hidden,
+        #     )
 
         for name, receiver_generator in [
             ("gru", gru_receiver_generator),
@@ -472,17 +473,3 @@ if __name__ == "__main__":
 
     main(sys.argv[1:])
 
-    # sys_argv_orig = sys.argv
-    #
-    # for vs in [50, 100]:
-    #     for maxlen in [2, 6, 8]:
-    #         for rs in range(5):
-    #             for i, arg in enumerate(sys.argv):
-    #
-    #                 main(sys.argv[1:] + ['--random_seed='+str(rs), '--vocab_size='+str(vs), '--max_len='+str(maxlen)])
-
-    # arguments = ['--n_attributes=4', '--n_values=5', '--vocab_size='+str(vs), '--max_len='+str(maxlen),
-    #              '--batch_size=5120', '--data_scaler='+str(60), '--random_seed='+str(rs),
-    #              '--sender_hidden=500', '--receiver_hidden=500', '--sender_entropy_coeff=0.5',
-    #              '--sender_cell=gru', '--receiver_cell=gru', '--lr=0.001', '--receiver_emb=30',
-    #              '--sender_emb=5', '--n_epochs='+str(3000)]
