@@ -323,7 +323,8 @@ def main(params):
                                    message_distance_fn='edit',
                                    compute_topsim_train_set=False,
                                    compute_topsim_test_set=False,
-                                   save_path=save_path)
+                                   save_path=save_path,
+                                   step=2)
     console_logger_save = ConsoleLoggerSave(save_path=save_path)
 
     trainer = core.Trainer(
