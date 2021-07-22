@@ -32,16 +32,16 @@ from egg.zoo.compo_vs_generalization.data import (
     split_holdout,
     split_train_test,
 )
-from egg.zoo.compo_vs_generalization.intervention import Evaluator, Metrics
-from egg.core.callbacks import CheckpointSaver, InteractionSaver, ConsoleLoggerSave, ConsoleLogger
-from egg.core.language_analysis import Disent, TopographicSimilarity
+
+from egg.zoo.systematicity.custom_callbacks import *
+from egg.zoo.compo_vs_generalization.intervention import Evaluator
 
 
 def get_params(params):
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_attributes", type=int, default=4, help="")
     parser.add_argument("--n_values", type=int, default=4, help="")
-    parser.add_argument("--data_scaler", type=int, default=100)
+    parser.add_argument("--data_scaler", type=int, default=60)
     parser.add_argument("--stats_freq", type=int, default=0)
     parser.add_argument(
         "--baseline", type=str, choices=["no", "mean", "builtin"], default="mean"
@@ -53,41 +53,41 @@ def get_params(params):
     parser.add_argument(
         "--sender_hidden",
         type=int,
-        default=50,
+        default=500,
         help="Size of the hidden layer of Sender (default: 10)",
     )
     parser.add_argument(
         "--receiver_hidden",
         type=int,
-        default=50,
+        default=500,
         help="Size of the hidden layer of Receiver (default: 10)",
     )
 
     parser.add_argument(
         "--sender_entropy_coeff",
         type=float,
-        default=1e-2,
+        default=0.5,
         help="Entropy regularisation coeff for Sender (default: 1e-2)",
     )
 
-    parser.add_argument("--sender_cell", type=str, default="rnn")
-    parser.add_argument("--receiver_cell", type=str, default="rnn")
+    parser.add_argument("--sender_cell", type=str, default="gru")
+    parser.add_argument("--receiver_cell", type=str, default="gru")
     parser.add_argument(
         "--sender_emb",
         type=int,
-        default=10,
+        default=30,
         help="Size of the embeddings of Sender (default: 10)",
     )
     parser.add_argument(
         "--receiver_emb",
         type=int,
-        default=10,
+        default=5,
         help="Size of the embeddings of Receiver (default: 10)",
     )
     parser.add_argument(
         "--early_stopping_thr",
         type=float,
-        default=0.999,
+        default=0.99, # 0.999,
         help="Early stopping threshold on accuracy (defautl: 0.99999)",
     )
 
@@ -197,6 +197,7 @@ class DiffLoss(torch.nn.Module):
 def main(params):
 
     opts = get_params(params)
+    print(params)
     _ = opts.device
 
     save_path = 'results/' + 'atts' + str(opts.n_attributes) + '_vals' + str(opts.n_values) + '_vs' + \
@@ -307,26 +308,36 @@ def main(params):
         )
     )
 
-    holdout_evaluator = Evaluator(loaders, opts.device, freq=0)
+    holdout_evaluator = EvaluatorCustom(loaders, opts.device, freq=0, save_path=save_path)
     early_stopper = EarlyStopperAccuracy(opts.early_stopping_thr, validation=True)
-    checkpoint_saver = CheckpointSaver(save_path, checkpoint_freq=0, prefix='checkpoint')
-    interaction_saver = InteractionSaver(checkpoint_dir=save_path)
-    disent = Disent(is_gumbel=False,
-                    compute_bosdis=False,
-                    compute_posdis=False,
-                    vocab_size=opts.vocab_size+1,
-                    print_train=False,
-                    print_test=False,
-                    save_path=save_path
-                    )
-    topsim = TopographicSimilarity(is_gumbel=False,
-                                   sender_input_distance_fn='cosine',
-                                   message_distance_fn='edit',
-                                   compute_topsim_train_set=False,
-                                   compute_topsim_test_set=False,
-                                   save_path=save_path
-                                   )
-    console_logger_save = ConsoleLoggerSave(save_path=save_path)
+    checkpoint_saver = CheckpointSaverCustom(save_path, checkpoint_freq=0, prefix='checkpoint')
+    interaction_saver = InteractionSaverCustom(checkpoint_dir=save_path, n_epochs=opts.n_epochs)
+    disent = DisentCustom(is_gumbel=False,
+                          compute_bosdis=False,
+                          compute_posdis=False,
+                          vocab_size=opts.vocab_size+1,
+                          print_train=False,
+                          print_test=False,
+                          save_path=save_path,
+                          n_epochs=opts.n_epochs
+                          )
+    topsim = TopographicSimilarityCustom(is_gumbel=False,
+                                         sender_input_distance_fn='cosine',
+                                         message_distance_fn='edit',
+                                         compute_topsim_train_set=False,
+                                         compute_topsim_test_set=False,
+                                         save_path=save_path,
+                                         n_epochs=opts.n_epochs
+                                         )
+    console_logger_save = ConsoleLoggerCustom(save_path=save_path, n_epochs=opts.n_epochs)
+    # tre = TreeReconstructionError(opts.n_attributes * opts.n_values,
+    #                               opts.max_len,
+    #                               opts.vocab_size,
+    #                               LinearComposition,
+    #                               n_epochs=opts.n_epochs,
+    #                               loaders_metrics=loaders,
+    #                               train_epochs=2
+    #                               )
 
     trainer = core.Trainer(
         game=game,
@@ -342,7 +353,8 @@ def main(params):
             topsim,
             checkpoint_saver,
             holdout_evaluator,
-            console_logger_save
+            console_logger_save,
+            # tre
         ],
     )
     trainer.train(n_epochs=opts.n_epochs)
@@ -471,5 +483,13 @@ if __name__ == "__main__":
 
     import sys
 
-    main(sys.argv[1:])
+    # main(sys.argv[1:])
+
+    sys_argv_orig = sys.argv
+
+    for vs in [50]:
+        for maxlen in [3]:
+            for rs in range(1):
+                main(sys_argv_orig[1:] + ['--random_seed=' + str(rs), '--vocab_size=' + str(vs),
+                                          '--max_len=' + str(maxlen)])
 

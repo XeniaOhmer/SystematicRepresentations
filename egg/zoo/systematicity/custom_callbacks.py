@@ -303,7 +303,7 @@ class InteractionSaverCustom(InteractionSaver):
         self.dump_interactions(test_logs, mode='test', epoch=epoch, rank=0, dump_dir=self.checkpoint_dir)
 
 
-class Evaluator(Callback):
+class EvaluatorCustom(Callback):
     def __init__(self, loaders_metrics, device, freq=1, save_path='./'):
         self.loaders_metrics = loaders_metrics
         self.device = device
@@ -341,7 +341,7 @@ class Evaluator(Callback):
 
             if train_end:
                 InteractionSaver.dump_interactions(logs=interaction,
-                                                   mode=loader_name,
+                                                   mode=loader_name.replace(' ', '_'),
                                                    epoch=self.epoch,
                                                    rank=0,
                                                    dump_dir=self.save_path+'interactions')
