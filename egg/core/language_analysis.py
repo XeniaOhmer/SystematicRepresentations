@@ -6,7 +6,6 @@
 import json
 from collections import defaultdict
 from typing import Callable, Union
-import pickle
 
 import editdistance
 import numpy as np
@@ -101,23 +100,6 @@ def mutual_info(xs, ys):
     return e_x + e_y - e_xy
 
 
-def get_attributes(sender_inputs):
-    n_attributes = int(torch.sum(sender_inputs[0, :]))
-    n_values = int(len(sender_inputs[0, :]) / n_attributes)
-    attribute_parts = []
-    for i in range(n_attributes):
-        attribute_parts.append(torch.argmax(sender_inputs[:, i*n_values:(i+1)*n_values], dim=1) + 1)
-    attributes = torch.stack(attribute_parts, dim=1)
-    return attributes
-
-
-def get_unique_attributes_and_messages(attributes, messages):
-    _, indices = np.unique(attributes, return_index=True, axis=0)
-    unique_attributes = attributes[indices]
-    unique_messages = messages[indices]
-    return unique_attributes, unique_messages
-
-
 class MessageEntropy(Callback):
     def __init__(self, print_train: bool = True, is_gumbel: bool = False):
         super().__init__()
@@ -162,7 +144,6 @@ class TopographicSimilarity(Callback):
         compute_topsim_train_set: bool = False,
         compute_topsim_test_set: bool = True,
         is_gumbel: bool = False,
-        save_path: str = './'
     ):
 
         self.sender_input_distance_fn = sender_input_distance_fn
@@ -170,10 +151,9 @@ class TopographicSimilarity(Callback):
 
         self.compute_topsim_train_set = compute_topsim_train_set
         self.compute_topsim_test_set = compute_topsim_test_set
-        # assert compute_topsim_train_set or compute_topsim_test_set
+        assert compute_topsim_train_set or compute_topsim_test_set
 
         self.is_gumbel = is_gumbel
-        self.save_path = save_path
 
     def on_epoch_end(self, loss: float, logs: Interaction, epoch: int):
         if self.compute_topsim_train_set:
@@ -189,7 +169,6 @@ class TopographicSimilarity(Callback):
         messages: torch.Tensor,
         meaning_distance_fn: Union[str, Callable] = "hamming",
         message_distance_fn: Union[str, Callable] = "edit",
-        step=1
     ) -> float:
 
         distances = {
@@ -216,8 +195,8 @@ class TopographicSimilarity(Callback):
         ), f"Cannot recognize {meaning_distance_fn} \
             or {message_distance_fn} distances"
 
-        meaning_dist = distance.pdist(meanings.numpy()[0::step], meaning_distance_fn)
-        message_dist = distance.pdist(messages.numpy()[0::step], message_distance_fn)
+        meaning_dist = distance.pdist(meanings, meaning_distance_fn)
+        message_dist = distance.pdist(messages, message_distance_fn)
 
         topsim = spearmanr(meaning_dist, message_dist, nan_policy="raise").correlation
 
@@ -227,23 +206,10 @@ class TopographicSimilarity(Callback):
         messages = logs.message.argmax(dim=-1) if self.is_gumbel else logs.message
         messages = [msg.tolist() for msg in messages]
 
-        topsim = self.compute_topsim(logs.sender_input, messages, step=self.step)
+        topsim = self.compute_topsim(logs.sender_input, messages)
 
         output = json.dumps(dict(topsim=topsim, mode=mode, epoch=epoch))
         print(output, flush=True)
-
-    def on_early_stopping(
-        self,
-        train_loss: float,
-        train_logs: Interaction,
-        epoch: int,
-        test_loss: float = None,
-        test_logs: Interaction = None,
-    ):
-        messages = train_logs.message.argmax(dim=-1) if self.is_gumbel else train_logs.message
-        unique_inputs, unique_messages = get_unique_attributes_and_messages(train_logs.sender_input, messages)
-        topsim = self.compute_topsim(unique_inputs, unique_messages, step=self.step)
-        pickle.dump(topsim, open(self.save_path + 'topsim.pkl', 'wb'))
 
 
 class Disent(Callback):
@@ -292,15 +258,14 @@ class Disent(Callback):
         vocab_size: int = 0,
         print_train: bool = False,
         print_test: bool = True,
-        save_path: str = './'
     ):
         super().__init__()
-        # assert (
-        #     print_train or print_test
-        # ), "At least one of `print_train` and `print_train` must be set"
-        # assert (
-        #     compute_posdis or compute_bosdis
-        # ), "At least one of `compute_posdis` and `compute_bosdis` must be set"
+        assert (
+            print_train or print_test
+        ), "At least one of `print_train` and `print_train` must be set"
+        assert (
+            compute_posdis or compute_bosdis
+        ), "At least one of `compute_posdis` and `compute_bosdis` must be set"
         assert (
             not compute_bosdis or vocab_size > 0
         ), "To compute a positive vocab_size must be specifed"
@@ -313,8 +278,6 @@ class Disent(Callback):
 
         self.print_train = print_train
         self.print_test = print_test
-
-        self.save_path = save_path
 
     @staticmethod
     def bosdis(
@@ -335,10 +298,10 @@ class Disent(Callback):
         message = logs.message.argmax(dim=-1) if self.is_gumbel else logs.message
 
         posdis = (
-            self.posdis(logs.sender_input, message) if self.compute_posdis else None
+            self.disent(logs.sender_input, message) if self.compute_posdis else None
         )
         bosdis = (
-            self.bosdis(logs.sender_input, message, self.vocab_size)
+            self.disent(logs.sender_input, message, self.vocab_size)
             if self.compute_bosdis
             else None
         )
@@ -353,22 +316,6 @@ class Disent(Callback):
     def on_validation_end(self, loss, logs, epoch):
         if self.print_test:
             self.print_message(logs, "test", epoch)
-
-    def on_early_stopping(
-        self,
-        train_loss: float,
-        train_logs: Interaction,
-        epoch: int,
-        test_loss: float = None,
-        test_logs: Interaction = None,
-    ):
-        messages = train_logs.message.argmax(dim=-1) if self.is_gumbel else train_logs.message
-        attributes = get_attributes(train_logs.sender_input)
-        unique_attributes, unique_messages = get_unique_attributes_and_messages(attributes, messages)
-
-        posdis = self.posdis(unique_attributes, unique_messages)
-        bosdis = self.bosdis(unique_attributes, unique_messages, self.vocab_size)
-        pickle.dump({'posdis': posdis, 'bosdis': bosdis}, open(self.save_path + 'disent.pkl', 'wb'))
 
 
 # The PrintValidationEvent callback function checks that we are at the

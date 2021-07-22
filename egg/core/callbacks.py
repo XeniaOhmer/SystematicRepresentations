@@ -9,7 +9,6 @@ import os
 import pathlib
 import re
 import sys
-import pickle
 from collections import OrderedDict
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Union
 
@@ -90,40 +89,6 @@ class ConsoleLogger(Callback):
     def on_epoch_end(self, loss: float, logs: Interaction, epoch: int):
         if self.print_train_loss:
             self.aggregate_print(loss, logs, "train", epoch)
-
-
-class ConsoleLoggerSave(Callback):
-    def __init__(self, save_path='./'):
-        self.save_path = save_path
-        self.metrics = {'train_loss': [], 'test_loss': [],
-                        'train_acc': [], 'test_acc': [],
-                        'train_length': [], 'test_length': [],
-                        'train_acc_or': [], 'test_acc_or': [],
-                        'train_sender_entropy': [], 'test_sender_entropy': [],
-                        'train_receiver_entropy': [], 'test_receiver_entropy': []}
-
-    def aggregate_save(self, loss: float, logs: Interaction, mode: str, epoch: int):
-        self.metrics[mode + '_loss'].append(loss)
-        aggregated_metrics = dict((k, v.mean().item()) for k, v in logs.aux.items())
-        for key in aggregated_metrics.keys():
-            if key != mode:
-                self.metrics[mode + '_' + key].append(aggregated_metrics[key])
-
-    def on_validation_end(self, loss: float, logs: Interaction, epoch: int):
-        self.aggregate_save(loss, logs, "test", epoch)
-
-    def on_epoch_end(self, loss: float, logs: Interaction, epoch: int):
-        self.aggregate_save(loss, logs, "train", epoch)
-
-    def on_early_stopping(
-        self,
-        train_loss: float,
-        train_logs: Interaction,
-        epoch: int,
-        test_loss: float = None,
-        test_logs: Interaction = None,
-    ):
-        pickle.dump(self.metrics, open(self.save_path + 'train_val_metrics.pkl', 'wb'))
 
 
 class TensorboardLogger(Callback):
@@ -250,18 +215,6 @@ class CheckpointSaver(Callback):
             filename=f"{self.prefix}_final" if self.prefix else "final"
         )
 
-    def on_early_stopping(
-        self,
-        train_loss: float,
-        train_logs: Interaction,
-        epoch: int,
-        test_loss: float = None,
-        test_logs: Interaction = None,
-    ):
-        self.save_checkpoint(
-            filename=f"{self.prefix}_final" if self.prefix else "final"
-        )
-
     def save_checkpoint(self, filename: str):
         """
         Saves the game, agents, and optimizer states to the checkpointing path under `<number_of_epochs>.tar` name
@@ -370,17 +323,6 @@ class InteractionSaver(Callback):
             ):
                 rank = self.trainer.distributed_context.rank
                 self.dump_interactions(logs, "train", epoch, rank, self.checkpoint_dir)
-
-    def on_early_stopping(
-            self,
-            train_loss: float,
-            train_logs: Interaction,
-            epoch: int,
-            test_loss: float = None,
-            test_logs: Interaction = None,
-    ):
-        self.dump_interactions(train_logs, mode='train', epoch=epoch, rank=0, dump_dir=self.checkpoint_dir)
-        self.dump_interactions(test_logs, mode='test', epoch=epoch, rank=0, dump_dir=self.checkpoint_dir)
 
 
 class CustomProgress(Progress):
