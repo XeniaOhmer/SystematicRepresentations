@@ -51,6 +51,16 @@ class LinearMultiplicationComposition(CompositionFunction):
         return self.linear_1(x) * self.linear_2(y)
 
 
+class LinearAdditionComposition(CompositionFunction):
+    def __init__(self, representation_size: int):
+        super().__init__(representation_size)
+        self.linear_1 = torch.nn.Linear(representation_size, representation_size)
+        self.linear_2 = torch.nn.Linear(representation_size, representation_size)
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return self.linear_1(x) + self.linear_2(y)
+
+
 class MultiplicativeComposition(CompositionFunction):
     def __init__(self, representation_size: int):
         super().__init__(representation_size)
