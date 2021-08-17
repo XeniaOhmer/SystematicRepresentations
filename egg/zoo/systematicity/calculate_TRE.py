@@ -1,4 +1,4 @@
-from egg.zoo.systematicity.metrics.tre import Objective, LinearComposition, CompositionFunction, MultipleCrossEntropyLoss
+from egg.zoo.systematicity.metrics.tre import *
 from typing import Iterable, Type
 import torch
 import os
@@ -101,51 +101,65 @@ class TreeReconstructionError(ABC):
         return loss.item(), torch.mean(torch.tensor(errors)).item()
 
 
-def main(n_atts, n_vals, prefix):
+def main(n_atts, n_vals, prefix, composition_fn):
 
     modes = ['test', 'generalization_hold_out', 'uniform_holdout']
 
-    for message_length in [3, 4, 6, 8]:
-        for vocab_size in [10, 50, 100]:
-            for seed_orig in range(5):
+    try:
+        if composition_fn == 'linear':
+            composition_function = LinearComposition
+        elif composition_fn == 'linearaddition':
+            composition_function = LinearAdditionComposition
+        elif composition_fn == 'mlp':
+            composition_function = MLPComposition
+    except UnboundLocalError:
+        print('Invalid composition function provided')
 
-                print(vocab_size, message_length, seed_orig)
+    for message_length in [4]:
+        for vocab_size in [50]:
+            for seed_orig in [0, 2]:
+
+                print(composition_fn, vocab_size, message_length, seed_orig)
 
                 path = (prefix + 'egg/zoo/systematicity/results/' +
                         get_name(n_atts, n_vals, vocab_size, message_length, seed_orig))
 
-                interaction_paths = {}
-                for mode in modes:
-                    interaction_paths[mode] = path + 'interactions/' + mode + '/'
-                interactions = {}
-                for mode in modes:
-                    for filename in os.listdir(interaction_paths[mode]):
-                        interactions[mode] = torch.load(interaction_paths[mode] + filename + '/interaction_gpu0')
+                try:
+                    interaction_paths = {}
+                    for mode in modes:
+                        interaction_paths[mode] = path + 'interactions/' + mode + '/'
+                    interactions = {}
+                    for mode in modes:
+                        for filename in os.listdir(interaction_paths[mode]):
+                            interactions[mode] = torch.load(interaction_paths[mode] + filename + '/interaction_gpu0')
+                except:
+                    continue
 
                 NUM_SEEDS = 3
                 tre_errors = {}
                 for seed in range(NUM_SEEDS):
                     tre_errors['seed' + str(seed)] = {}
-                    TRE = TreeReconstructionError(n_atts * n_vals, message_length, vocab_size, LinearComposition)
+                    TRE = TreeReconstructionError(n_atts * n_vals, message_length, vocab_size, composition_function)
                     value_sum, value_mean, objective = TRE.measure(interactions['test'])
-                    tre_errors['seed' + str(seed)]['_training_sum'] = value_sum
-                    tre_errors['seed' + str(seed)]['_training_mean'] = value_mean
+                    tre_errors['seed' + str(seed)]['training_sum'] = value_sum
+                    tre_errors['seed' + str(seed)]['training_mean'] = value_mean
                     value_sum, value_mean = TRE.evaluate(interactions['generalization_hold_out'], objective)
-                    tre_errors['seed' + str(seed)]['_generalization_holdout_sum'] = value_sum
-                    tre_errors['seed' + str(seed)]['_generalization_holdout_mean'] = value_mean
+                    tre_errors['seed' + str(seed)]['generalization_holdout_sum'] = value_sum
+                    tre_errors['seed' + str(seed)]['generalization_holdout_mean'] = value_mean
                     value_sum, value_mean = TRE.evaluate(interactions['uniform_holdout'], objective)
-                    tre_errors['seed' + str(seed)]['_uniform_holdout_sum'] = value_sum
-                    tre_errors['seed' + str(seed)]['_uniform_holdout_mean'] = value_mean
+                    tre_errors['seed' + str(seed)]['uniform_holdout_sum'] = value_sum
+                    tre_errors['seed' + str(seed)]['uniform_holdout_mean'] = value_mean
 
-                pickle.dump(tre_errors, open(path + 'tre.pkl', 'wb'))
-                torch.save(objective, open(path + 'tre_objective.pt', 'wb'))
+                pickle.dump(tre_errors, open(path + 'tre_' + composition_fn + '.pkl', 'wb'))
+                torch.save(objective, open(path + 'tre_objective_' + composition_fn + '.pt', 'wb'))
 
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_attributes", type=int, default=2)
-    parser.add_argument("--n_values", type=int, default=16)
+    parser.add_argument("--n_values", type=int, default=50)
+    parser.add_argument("--composition_fn", type=str, default='linear')
     parser.add_argument("--prefix", type=str, default='C:/Users/Xenia/PycharmProjects/SystematicRepresentations/')
     args = parser.parse_args()
-    main(args.n_attributes, args.n_values, args.prefix)
+    main(args.n_attributes, args.n_values, args.prefix, args.composition_fn)
