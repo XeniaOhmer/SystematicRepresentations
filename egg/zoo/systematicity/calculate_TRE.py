@@ -5,6 +5,7 @@ import os
 import pickle
 from abc import ABC
 import argparse
+import logging
 
 
 def get_protocol(interaction, vocab_size):
@@ -69,7 +70,7 @@ class TreeReconstructionError(ABC):
             derivations=protocol.keys(),
             objective=objective,
             optimizer=torch.optim.Adam(objective.parameters(), lr=1e-1, weight_decay=self.weight_decay),
-            n_epochs=1000
+            n_epochs=250
         )
         return reconstruction_error_sum, reconstruction_error_mean, objective
 
@@ -95,7 +96,7 @@ class TreeReconstructionError(ABC):
             errors = [objective(message, derivation) for message, derivation in zip(messages, derivations)]
             loss = sum(errors)
             loss.backward()
-            if not quiet and t % 100 == 0:
+            if not quiet and t % 25 == 0:
                 print(f'Training loss at epoch {t} is {loss.item():.4f}')
             optimizer.step()
         return loss.item(), torch.mean(torch.tensor(errors)).item()
@@ -115,9 +116,9 @@ def main(n_atts, n_vals, prefix, composition_fn):
     except UnboundLocalError:
         print('Invalid composition function provided')
 
-    for message_length in [4]:
-        for vocab_size in [50]:
-            for seed_orig in [0, 2]:
+    for message_length in [8]:
+        for vocab_size in [100]:
+            for seed_orig in [0]:
 
                 print(composition_fn, vocab_size, message_length, seed_orig)
 
@@ -141,6 +142,7 @@ def main(n_atts, n_vals, prefix, composition_fn):
                     tre_errors['seed' + str(seed)] = {}
                     TRE = TreeReconstructionError(n_atts * n_vals, message_length, vocab_size, composition_function)
                     value_sum, value_mean, objective = TRE.measure(interactions['test'])
+                    print('sum', value_sum, 'mean', value_mean)
                     tre_errors['seed' + str(seed)]['training_sum'] = value_sum
                     tre_errors['seed' + str(seed)]['training_mean'] = value_mean
                     value_sum, value_mean = TRE.evaluate(interactions['generalization_hold_out'], objective)
@@ -150,8 +152,8 @@ def main(n_atts, n_vals, prefix, composition_fn):
                     tre_errors['seed' + str(seed)]['uniform_holdout_sum'] = value_sum
                     tre_errors['seed' + str(seed)]['uniform_holdout_mean'] = value_mean
 
-                pickle.dump(tre_errors, open(path + 'tre_' + composition_fn + '.pkl', 'wb'))
-                torch.save(objective, open(path + 'tre_objective_' + composition_fn + '.pt', 'wb'))
+                #pickle.dump(tre_errors, open(path + 'tre_' + composition_fn + '.pkl', 'wb'))
+                #torch.save(objective, open(path + 'tre_objective_' + composition_fn + '.pt', 'wb'))
 
 
 if __name__ == "__main__":
