@@ -162,8 +162,8 @@ def main(n_atts, n_vals, prefix, composition_fn):
     except UnboundLocalError:
         print('Invalid composition function provided')
 
-    for message_length in [3, 4, 6, 8]:
-        for vocab_size in [10, 50, 100]:
+    for message_length in [8]:
+        for vocab_size in [100]:
             for seed_orig in range(3):
 
                 print(composition_fn, "values", n_vals, "vs", vocab_size, "ml", message_length, seed_orig)
